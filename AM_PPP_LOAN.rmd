@@ -1,0 +1,350 @@
+---
+title: "Asset Management PPP Loans"
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+author: "Adrian D. Garcia"
+date: "July 2020"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+# Intro
+
+## Getting Started
+
+The goal of this project is to identify a list of firms within the asset management industry that received a PPP Loan from the Small Business Administration.
+
+```{r setup, message = FALSE, warning = FALSE}
+
+library(waffle) #Waffle graphs
+library(tidyverse) #For Data Analysis
+library(readxl)
+library(lubridate) #For working with dates
+library(DT) #For visualizing tables
+
+```
+
+First, I pull in the following data:
+
+* SBA [data](https://sba.app.box.com/s/tvb0v5i57oa8gc6b5dcm9cyw7y2ms6pp). Pulled July 15, 2020. 661,218 rows and 16 columns.
+* Morningstar Direct  mutual fund data. (I combined it using “Combine_Files.r”).  Pulled July 10, 2020. 25,569 rows and 11 columns.
+* Morningstar Direct ETF data. Pulled TKTK.
+* SEC registered investment advisors [data](https://www.sec.gov/help/foiadocsinvafoiahtm.html). Pulled July 22, 2020. 13,647 rows and 262 columns.
+* SEC exempt reporting advisors [data](https://www.sec.gov/help/foiadocsinvafoiahtm.html). Pulled July 22, 2020. 4,404 rows, 101 columns.
+* FINRA regulated firm [data](https://www.finra.org/about/firms-we-regulate/0). Pulled July 22, 2020. 3,515 rows and 5 columns.
+
+```{r load, message = FALSE}
+
+SBA_Full <- read_csv("~/Data/ppp_loans/data/SBA/SBA_PPP_Data_071520.csv",
+                 guess_max = 25000)
+
+MS_MF_Full <- read_csv("~/Data/ppp_loans/data/Morningstar/MS_Info_Report_071020_Full.csv",
+                 guess_max = 25000)
+
+#TK
+
+SEC_RIA <- read_excel("~/Data/ppp_loans/data/SEC/ia070120.xlsx", sheet = 1,
+                      guess_max = 13500)
+
+SEC_Exempt <- read_excel("~/Data/ppp_loans/data/SEC/ia070120-exempt.xlsx", sheet = 1,
+                         guess_max = 4400)
+
+FINRA <- read_excel("~/Data/ppp_loans/data/FINRA/FINRA_072220_IMPORTIO.xlsx", sheet = 1,
+                    guess_max = 3500)
+
+
+```
+
+Next, I make to the following adjustments to the data sets.
+
+* Replace spaces with periods in column names
+* Limit some data
+ + RIA: columns 1:26
+ + Exempt: columns 1:25
+ + FINRA: columns 2:4
+* Lowercase
+ + **SBA_Adj**: BusinessName, Address, City, State
+ + **MS_MF_Adj**: Firm.Name, Firm..Street.Address, Advisor, Subadvisor
+ + **SEC_RIA_Adj**: Primary.Business.Name, Legal.Name, Main.Office.Street.Address.1, Main.Office.Street.Address.2,Main.Office.City, Main.Office.State
+ + **SEC_Exempt_Adj**: Primary.Business.Name, Legal.Name, Main.Office.Street.Address.1, Main.Office.Street.Address.2,Main.Office.City, Main.Office.State
+ + **FINRA**: Firm, Address, Mailing.Address
+
+```{r adjustment, Message=FALSE}
+
+MS_MF_Adj <- MS_MF_Full %>%
+  rename_all(make.names) %>% 
+  mutate(
+    Firm.Name = tolower(Firm.Name),
+    Firm..Street.Address = tolower(Firm..Street.Address),
+    Advisor = tolower(Advisor),
+    Subadvisor = tolower(Subadvisor)
+    )
+
+
+SBA_Adj <- SBA_Full %>%
+  rename_all(make.names) %>% 
+  mutate(
+    BusinessName = tolower(BusinessName),
+    Address = tolower(Address),
+    City = tolower(City),
+    State = tolower(State)
+  )
+
+SEC_RIA_Adj <- SEC_RIA %>% 
+  rename_all(make.names) %>%
+  select(1:26) %>% 
+  mutate(
+    Primary.Business.Name = tolower(Primary.Business.Name),
+    Legal.Name = tolower(Legal.Name),
+    Main.Office.Street.Address.1 = tolower(Main.Office.Street.Address.1),
+    Main.Office.Street.Address.2 = tolower(Main.Office.Street.Address.2),
+    Main.Office.City = tolower(Main.Office.City),
+    Main.Office.State = tolower(Main.Office.State)
+  )
+
+SEC_Exempt_Adj <- SEC_Exempt %>% 
+  rename_all(make.names) %>%
+  select(1:25) %>% 
+  mutate(
+    Primary.Business.Name = tolower(Primary.Business.Name),
+    Legal.Name = tolower(Legal.Name),
+    Main.Office.Street.Address.1 = tolower(Main.Office.Street.Address.1),
+    Main.Office.Street.Address.2 = tolower(Main.Office.Street.Address.2),
+    Main.Office.City = tolower(Main.Office.City),
+    Main.Office.State = tolower(Main.Office.State)
+  )
+
+FINRA_Adj <- FINRA %>% 
+  rename_all(make.names) %>% 
+  mutate(
+    Firm = tolower(New.column),
+    Address = tolower(New.column..1.),
+    Mailing.Address = tolower(New.column..2.)
+  ) %>% 
+  select(6:8)
+
+```
+
+# SBA
+
+The SBA data is categorized using NAICS codes. The [ones](https://www.naics.com/code-search/?naicstrms=mutual,fund) most relevant to us include:
+
+* 525910, open end investment funds
+* 523920, portfolio management
+* 523130, securities brokerage
+* 525990, other financial vehicles
+
+```{r, sba, message=TRUE}
+
+SBA_Adj %>%
+  group_by(NAICSCode) %>% 
+  summarise(Count = n()) %>% 
+  mutate(PCT = round(Count/sum(Count),2)*100) %>% 
+  arrange(desc(Count)) %>% 
+  filter(NAICSCode %in% 
+           c("525910", "523920", "523130", "525990") |
+           is.na(NAICSCode)
+         )
+```
+
+
+# Morningstar Mutual Funds
+
+I want to start by seeing the firms, advisors and subadvisors within **MS_MF_Adj** that mach companies in **SBA_Adj**
+
+* Isolate distinct names for each category
+* Modify names by removing punctuation
+* Modify names by removing "llc", "inc", "llp", and "co"
+
+
+```{r ms_mf_firms, Message=FALSE}
+
+SBA_Firm <- SBA_Adj %>%
+  distinct(BusinessName) %>% 
+    mutate(
+    BusinessName.Mod = str_replace_all(BusinessName, "[:punct:]+", ""),
+    BusinessName.Mod1 = str_replace_all(BusinessName.Mod, "[:space:](llc)?(inc)?(llp)?(co)?$", "")
+  )
+
+MS_MF_Firm <- MS_MF_Adj %>%
+  distinct(Firm.Name) %>%
+  mutate(
+    Firm.Mod = str_replace_all(Firm.Name, "[:punct:]+", ""),
+    Firm.Mod1 = str_replace_all(Firm.Mod, "[:space:](llc)?(inc)?(llp)?(co)?$", "")
+  )
+
+MS_MF_Advisor <- MS_MF_Adj %>%
+  distinct(Advisor) %>%
+  mutate(
+    Advisor.Mod = str_replace_all(Advisor, "[:punct:]+", ""),
+    Advisor.Mod1 = str_replace_all(Advisor.Mod, "[:space:](llc)?(inc)?(llp)?(co)?$", "")
+  )
+
+MS_MF_Subadvisor <- MS_MF_Adj %>%
+  distinct(Subadvisor) %>%
+  mutate(
+    Subadvisor.Mod = str_replace_all(Subadvisor, "[:punct:]+", ""),
+    Subadvisor.Mod1 = str_replace_all(Subadvisor.Mod, "[:space:](llc)?(inc)?(llp)?(co)?$", "")
+  )
+
+
+```
+
+Here are the mutual fund firms in Morningstar that match with companies in the SBA dataset. 6 firms match just based on names. The number goes up to 83 when name modifiers are removed. Some of the matches are duplicates but this provides a good base line of what to clean up.
+
+```{r, MF_firm_match, echo = FALSE}
+
+inner_join(MS_MF_Firm, SBA_Firm, by= c("Firm.Mod" = "BusinessName.Mod")) %>% 
+  datatable()
+
+inner_join(MS_MF_Firm, SBA_Firm, by= c("Firm.Mod1" = "BusinessName.Mod1")) %>% 
+  datatable()
+
+```
+
+Here are the advisor firms in Morningstar that match with companies in the SBA dataset. 79 firms match just based on names. The number goes up to 91 when name modifiers are removed. Some of the matches are duplicates but this provides a good base line of what to clean up.
+
+```{r, MF_advisor_match, echo = FALSE}
+
+inner_join(MS_MF_Advisor, SBA_Firm, by= c("Advisor.Mod" = "BusinessName.Mod")) %>% 
+  datatable()
+
+inner_join(MS_MF_Advisor, SBA_Firm, by= c("Advisor.Mod1" = "BusinessName.Mod1")) %>% 
+  datatable()
+
+```
+Here are the subadvisor firms in Morningstar that match with companies in the SBA dataset. 30 firms match just based on names. The number goes up to 36 when name modifiers are removed. Some of the matches are duplicates but this provides a good base line of what to clean up.
+
+```{r, MF_subadvisor_match, echo = FALSE}
+
+inner_join(MS_MF_Subadvisor, SBA_Firm, by= c("Subadvisor.Mod" = "BusinessName.Mod")) %>% 
+  datatable()
+
+inner_join(MS_MF_Subadvisor, SBA_Firm, by= c("Subadvisor.Mod1" = "BusinessName.Mod1")) %>% 
+  datatable()
+
+```
+
+# SEC DATA
+
+I want to start by seeing the businesses within **SEC_Exempt_Adj** and **SEC_RIA_Adj** that mach companies in **SBA_Adj**
+
+* Isolate distinct names for each category
+* Modify names by removing punctuation
+* Modify names by removing "llc", "inc", "llp", and "co"
+
+```{r, SEC_RIA_match, message=FALSE}
+
+SEC_Exempt_BizName <- SEC_Exempt_Adj %>%
+  distinct(Primary.Business.Name) %>%
+  mutate(
+    BizName.Mod = str_replace_all(Primary.Business.Name, "[:punct:]+", ""),
+    BizName.Mod1 = str_replace_all(BizName.Mod, "[:space:](llc)?(inc)?(llp)?(co)?$", "")
+  )
+
+SEC_Exempt_LegalName <- SEC_Exempt_Adj %>%
+  distinct(Legal.Name) %>%
+  mutate(
+    Legal.Name.Mod = str_replace_all(Legal.Name, "[:punct:]+", ""),
+    Legal.Name.Mod1 = str_replace_all(Legal.Name.Mod, "[:space:](llc)?(inc)?(llp)?(co)?$", "")
+  )
+
+SEC_RIA_BizName <- SEC_RIA_Adj %>%
+  distinct(Primary.Business.Name) %>%
+  mutate(
+    BizName.Mod = str_replace_all(Primary.Business.Name, "[:punct:]+", ""),
+    BizName.Mod1 = str_replace_all(BizName.Mod, "[:space:](llc)?(inc)?(llp)?(co)?$", "")
+  )
+
+SEC_RIA_LegalName <- SEC_RIA_Adj %>%
+  distinct(Legal.Name) %>%
+  mutate(
+    Legal.Name.Mod = str_replace_all(Legal.Name, "[:punct:]+", ""),
+    Legal.Name.Mod1 = str_replace_all(Legal.Name.Mod, "[:space:](llc)?(inc)?(llp)?(co)?$", "")
+  ) 
+
+
+# a <- MS_Adj %>%
+#     mutate(
+#         ZIP = str_extract(Firm..Street.Address, "(?<!box[:space:](\\d)?)\\d{5,}")
+#     )
+
+```
+
+Here are the RIA firms registered with the SEC that match with companies in the SBA dataset. 922 firms match just based on names. The number goes up to 1,245 when name modifiers are removed. Some of the matches are duplicates but this provides a good base line of what to clean up.
+
+The matches increase when comaring the legal names filed to those in the SBA dataset.
+
+```{r, sec_RIA_match, echo = FALSE}
+
+inner_join(SEC_RIA_BizName, SBA_Firm, by= c("BizName.Mod" = "BusinessName.Mod")) %>% 
+  datatable()
+
+inner_join(SEC_RIA_BizName, SBA_Firm, by= c("BizName.Mod1" = "BusinessName.Mod1")) %>% 
+  datatable()
+
+inner_join(SEC_RIA_LegalName, SBA_Firm, by= c("Legal.Name.Mod" = "BusinessName.Mod")) %>% 
+  datatable()
+
+inner_join(SEC_RIA_LegalName, SBA_Firm, by= c("Legal.Name.Mod1" = "BusinessName.Mod1")) %>% 
+  datatable()
+
+```
+
+Here are exempt RIA firms registered with the SEC that match with companies in the SBA dataset. 44 firms match just based on names. The number goes up to 50 when name modifiers are removed. Some of the matches are duplicates but this provides a good base of what to clean up.
+
+The matches increase when comaring the legal names filed to those in the SBA dataset.
+
+```{r, SEC_exempt_match, echo = FALSE}
+
+inner_join(SEC_Exempt_BizName, SBA_Firm, by= c("BizName.Mod" = "BusinessName.Mod")) %>% 
+  datatable()
+
+inner_join(SEC_Exempt_BizName, SBA_Firm, by= c("BizName.Mod1" = "BusinessName.Mod1")) %>% 
+  datatable()
+
+inner_join(SEC_Exempt_LegalName, SBA_Firm, by= c("Legal.Name.Mod" = "BusinessName.Mod")) %>% 
+  datatable()
+
+inner_join(SEC_Exempt_LegalName, SBA_Firm, by= c("Legal.Name.Mod1" = "BusinessName.Mod1")) %>% 
+  datatable()
+
+```
+
+# FINRA
+
+I want to start by seeing the businesses within **FINRA_Adj** that mach companies in **SBA_Adj**
+
+* Isolate distinct names for each category
+* Modify names by removing punctuation
+* Modify names by removing "llc", "inc", "llp", and "co"
+
+```{r, finra_firms, message=FALSE}
+
+FINRA_Firm <- FINRA_Adj %>%
+  distinct(Firm) %>%
+  mutate(
+    Firm.Mod = str_replace_all(Firm, "[:punct:]+", ""),
+    Firm.Mod1 = str_replace_all(Firm.Mod, "[:space:](llc)?(inc)?(llp)?(co)?$", "")
+  )
+
+```
+
+Here are the RIA firms regulated by FINRA that match with companies in the SBA dataset. 317 firms match just based on names. The number goes up to 355 when name modifiers are removed. Some of the matches are duplicates but this provides a good base line of what to clean up.
+
+The matches increase when comaring the legal names filed to those in the SBA dataset.
+
+```{r, finra_match, echo = FALSE}
+
+inner_join(FINRA_Firm, SBA_Firm, by= c("Firm.Mod" = "BusinessName.Mod")) %>% 
+  datatable()
+
+inner_join(FINRA_Firm, SBA_Firm, by= c("Firm.Mod1" = "BusinessName.Mod1")) %>% 
+  datatable()
+
+```
