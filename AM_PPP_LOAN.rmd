@@ -21,7 +21,6 @@ The goal of this project is to identify a list of firms within the asset managem
 
 ```{r setup, message = FALSE, warning = FALSE}
 
-library(waffle) #Waffle graphs
 library(tidyverse) #For Data Analysis
 library(readxl)
 library(lubridate) #For working with dates
@@ -99,7 +98,6 @@ Next, I make the following adjustments to the data sets.
  * Modify **SBA_Adj** BusinessName names by removing punctuation ( _BusinessName.Mod_ ) and removing "llc", "inc", "llp", "co" and (ltd) ( _BusinessName.Mod1_ )
 
 ```{r adjustment, Message=FALSE}
-
 
 MS_MF_Adj <- MS_Full %>%
   rename_all(make.names) %>%
@@ -195,17 +193,25 @@ FINRA_Adj <- FINRA %>%
 
 The SBA data is categorized using NAICS codes. The [ones](https://www.naics.com/code-search/?naicstrms=mutual,fund) most relevant to us include:
 
-* 523930, [investment advice](https://www.naics.com/code-search/?naicstrms=238990)
+* ~~523930, investment advice~~
 * 523920, portfolio management
-* 523120, [securities brokerage](https://www.naics.com/code-search/?naicstrms=238990)
 * 523999, [misc. financial investment activities](https://www.naics.com/code-search/?naicstrms=238990)
-* 523110, [investment banking and securities dealing](https://www.naics.com/code-search/?naicstrms=238990)
 * 541611, [Admin. management and general management consulting services](https://www.naics.com/code-search/?naicstrms=238990)
+* 523120, [securities brokerage](https://www.naics.com/code-search/?naicstrms=238990)
+* 523110, [investment banking and securities dealing](https://www.naics.com/code-search/?naicstrms=238990)
+* 541990, [all other professional, scientific, technical services](https://www.naics.com/naics-code-description/?code=541990)
 * 525910, open end investment funds
 * 523130, securities brokerage
+* 523991, [trust, fiduciary and custody activities](https://www.naics.com/naics-code-description/?code=523991)
 * 525990, other financial vehicles
+* 551112, [offices of other holding companies](https://www.naics.com/naics-code-description/?code=551112)
+* 522320, [financial transactions processing, reserve, and clearinghouse activities](https://www.naics.com/code-search/?naicstrms=522320)
 
-```{r, sba, echo=TRUE}
+Appears to be 3% of overall data or 2,1807 businesses
+
+```{r, sba, echo=FALSE}
+
+codes <- c("523920", "523999", "541611", "523120", "541990", "525910", "523130", "523991", "525990", "551112", "522320")
 
 SBA_Adj %>%
   group_by(NAICSCode) %>%
@@ -215,15 +221,7 @@ SBA_Adj %>%
   filter(
     NAICSCode %in%
       c(
-        "523930",
-        "523920",
-        "523120",
-        "523999",
-        "523110",
-        "541611",
-        "525910",
-        "523130",
-        "525990"
+      codes
       ) |
       is.na(NAICSCode)
   ) %>%
@@ -435,13 +433,13 @@ FINRA_Firm <- FINRA_Adj %>%
   summarise() %>% 
   mutate(
     Firm.Mod = str_replace_all(Firm, punct, ""),
-    Firm.Mod1 = str_replace_all(Firm.Mod, "[:space:](llc)?(inc)?(llp)?(co)??(ltd)?$", ""),
+    Firm.Mod1 = str_replace_all(Firm.Mod, modifiers, ""),
     FINRA_Firm = "FINRA_Firm"
   )
 
 ```
 
-355 firms regulated by FINRA match.
+360 firms regulated by FINRA match.
 
 ```{r, Finra_Match, echo = FALSE}
 
@@ -513,17 +511,79 @@ The SBA data is categorized using NAICS codes. The [ones](https://www.naics.com/
 
 * 523930, [investment advice](https://www.naics.com/code-search/?naicstrms=238990)
 * 523920, portfolio management
-* 523120, [securities brokerage](https://www.naics.com/code-search/?naicstrms=238990)
 * 523999, [misc. financial investment activities](https://www.naics.com/code-search/?naicstrms=238990)
-* 523110, [investment banking and securities dealing](https://www.naics.com/code-search/?naicstrms=238990)
 * 541611, [Admin. management and general management consulting services](https://www.naics.com/code-search/?naicstrms=238990)
+* 523120, [securities brokerage](https://www.naics.com/code-search/?naicstrms=238990)
+* 523110, [investment banking and securities dealing](https://www.naics.com/code-search/?naicstrms=238990)
+* 541990, [all other professional, scientific, technical services](https://www.naics.com/naics-code-description/?code=541990)
 * 525910, open end investment funds
 * 523130, securities brokerage
+* 523991, [trust, fiduciary and custody activities](https://www.naics.com/naics-code-description/?code=523991)
 * 525990, other financial vehicles
+* 551112, [offices of other holding companies](https://www.naics.com/naics-code-description/?code=551112)
+* 522320, [financial transactions processing, reserve, and clearinghouse activities](https://www.naics.com/code-search/?naicstrms=522320)
 
 ```{r, results_show, echo=FALSE}
 
-Matches %>% 
+Paired %>% 
+  distinct(BusinessName, Address, DateApproved, .keep_all = TRUE) %>% 
+  group_by(NAICSCode) %>% 
+  summarise(Count = n()) %>% 
+  arrange(desc(Count)) %>%
+  datatable()
+
+```
+
+
+I think we can clean the data  little more. First, I remove any duplicates that have the exact loan range, same name, address and approval date, leaving 1,630 rows.
+
+I want to see if any of the data in the SBA file matches with the MS or SEC data by having firms in the same city. To check I create columns comparing the city in SBA column to the city within the address column Morningstar has for fund firms or the columns the SEC has for the main office city. There are two of these columns because the data looked for both legal names and business names in the SEC file.
+
+Now I want to remove cases where there is no match city match between the Morningstar data and SBA and there are blanks for the SEC city. 79 firms met the criteria. None seemed to be relevant to our analysis.
+
+1,551 rows remain. These have found a matching business name in either the SEC or Morninstar databases and have either drawn blanks for matching cities against the SBA file (15) or found at least one match in the various datasets.
+
+Seven of the rows with no matches have codes (523930 or 523920). The rest seem to be irrelevant. So I dop those 8. 1,543 rows remain.
+
+```{r, refine, message=FALSE}
+
+REFINED <- Paired %>% 
+  distinct(LoanRange, BusinessName, Address, DateApproved, .keep_all = TRUE) %>% 
+  mutate(
+    MATCH_MS =
+      str_detect(Firm..Street.Address, City),
+    MATCH_SEC1 =
+      str_detect(Main.Office.City.x, City),
+    MATCH_SEC2 =
+      str_detect(Main.Office.City.y, City)
+  ) %>% 
+  filter(
+    (MATCH_MS == "TRUE" |
+       is.na(MATCH_MS) &
+       MS_Firm == "MS_Firm" |
+       MS_Advisor == "MS_Advisor" |
+       MS_Subadvisor == "MS_Subadvisor") |
+       (MATCH_SEC1 == "TRUE" |
+       is.na(MATCH_SEC1) |
+         MATCH_SEC2 == "TRUE" |
+       is.na(MATCH_SEC2) 
+       ) &
+         (SEC_BizName == "SEC_BIZNAME" |
+         SEC_LegalName == "SEC_LegalName" &
+         NAICSCode %in% codes)
+  )
+
+
+       
+
+write_csv(REFINED, "REFINED_SBA_DATA.csv")
+
+```
+
+```{r, refined_show, echo=FALSE}
+
+REFINED %>% 
+  distinct(BusinessName, Address, DateApproved, .keep_all = TRUE) %>% 
   group_by(NAICSCode) %>% 
   summarise(Count = n()) %>% 
   arrange(desc(Count)) %>%
